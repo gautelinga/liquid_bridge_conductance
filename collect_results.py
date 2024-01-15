@@ -9,18 +9,8 @@ def parse_args():
     parser.add_argument("infolder", type=str, help="Name of folder containing .h5 volume mesh files")
     return parser.parse_args()
 
-<<<<<<< HEAD
-def key_val_split(item, delim="="):
-    key, val = item.split("=")
-
-    return key, (float(val[:-2]), val[-2:])
 
 def fetch_data(infolder):
-=======
-if __name__ == "__main__":
-    args = parse_args()
-
->>>>>>> dd450992091dbc9b522b0ff3c6e27bb28a012da3
     fnames = []
     for fname in os.listdir(infolder):
         if fname[-4:] == ".dat":
