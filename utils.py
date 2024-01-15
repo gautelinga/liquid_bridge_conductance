@@ -103,3 +103,8 @@ class Sphere(GenSubDomain):
     def inside(self, x, on_boundary):
         rad = np.linalg.norm(x - self.x_mid)
         return on_boundary and rad < self.R
+    
+def key_val_split(item, delim="="):
+    key, val = item.split("=")
+
+    return key, (float(val[:-2]), val[-2:])

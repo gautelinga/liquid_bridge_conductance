@@ -6,8 +6,6 @@ import meshio
 import numpy as np
 from utils import numpy_to_dolfin_file
 import tetgen
-import pymeshlab
-import pyvista
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Mesh interior of surface meshes (.stl or similar)")
@@ -16,7 +14,7 @@ def parse_args():
     parser.add_argument("--delta", type=float, default=0.05, help="Small parameter to regularize contact points between beads and plates")
     return parser.parse_args()
 
-def generate_mesh(filename, savefile, delta=0.0):
+def generate_mesh(filename, savefile, delta=0.0, save_xdmf=True):
     m_surf = meshio.read(filename)
     nodes = m_surf.points
 
@@ -57,6 +55,16 @@ def generate_mesh(filename, savefile, delta=0.0):
 
     numpy_to_dolfin_file(nodes, elems, filename=savefile)
 
+    if save_xdmf:
+        mesh = df.Mesh()
+        with df.HDF5File(mesh.mpi_comm(), savefile, "r") as h5f:
+            h5f.read(mesh, "mesh", False)
+        
+        with df.XDMFFile(mesh.mpi_comm(), savefile[:-3] + "_show.xdmf") as xdmff:
+            xdmff.write(mesh)
+
+    
+
 if __name__ == "__main__":
     args = parse_args()
 
@@ -81,5 +89,8 @@ if __name__ == "__main__":
 
         if not os.path.exists(output_fname):
             print(fname)
-            generate_mesh(input_fname, 
-                        output_fname)
+            try:
+                generate_mesh(input_fname, 
+                              output_fname, save_xdmf=False)
+            except:
+                pass
