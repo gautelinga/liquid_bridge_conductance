@@ -1,6 +1,6 @@
 import argparse
 import numpy as np
-from utils import mpi_max, mpi_min, mpi_print, mpi_is_root
+from utils import mpi_max, mpi_min, mpi_print, mpi_is_root, key_val_split
 import os
 import matplotlib.pyplot as plt
 
@@ -8,11 +8,6 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Solve for permeability in a single geometry")
     parser.add_argument("infolder", type=str, help="Name of folder containing .h5 volume mesh files")
     return parser.parse_args()
-
-def key_val_split(item, delim="="):
-    key, val = item.split("=")
-
-    return key, (float(val[:-2]), val[-2:])
 
 if __name__ == "__main__":
     args = parse_args()
