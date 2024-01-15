@@ -14,11 +14,9 @@ def key_val_split(item, delim="="):
 
     return key, (float(val[:-2]), val[-2:])
 
-if __name__ == "__main__":
-    args = parse_args()
-
+def fetch_data(infolder):
     fnames = []
-    for fname in os.listdir(args.infolder):
+    for fname in os.listdir(infolder):
         if fname[-4:] == ".dat":
             fnames.append(fname)
     fnames = sorted(fnames)
@@ -30,8 +28,14 @@ if __name__ == "__main__":
         data_prm = [prm["Dist"][0], prm["Pc"][0], prm["Vol"][0]]
         units = dict([(key, val[1]) for key, val in prm.items()])
 
-        data = np.loadtxt(os.path.join(args.infolder, fname))
+        data = np.loadtxt(os.path.join(infolder, fname))
         data_.append(np.concatenate([data_prm, data]))
+    return data_, units
+
+if __name__ == "__main__":
+    args = parse_args()
+
+    data_, units = fetch_data(args.infolder)
 
     data_ = np.vstack(data_)
 
@@ -69,5 +73,6 @@ if __name__ == "__main__":
     ax[2].plot(data_[:, 2], popt[0]*data_[:, 2], label=f"{popt[0]:1.2g} $V$")
     ax[2].legend()
 
-
     plt.show()
+    
+    print("Done.")
