@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.tri import Triangulation
 import trimesh
+import pymeshlab
 
 import igl
 import scipy as sp
@@ -132,6 +133,98 @@ def boundary_to_mesh(f, mesh):
     F.vector().apply("")
     return F
 
+def get_curv(nodes_bdry, faces_bdry):
+    gaussian_curv = igl.gaussian_curvature(nodes_bdry, faces_bdry)
+
+    l = igl.cotmatrix(nodes_bdry, faces_bdry)
+    m = igl.massmatrix(nodes_bdry, faces_bdry, igl.MASSMATRIX_TYPE_VORONOI)
+
+    minv = sp.sparse.diags(1 / m.diagonal())
+
+    hn = -minv.dot(l.dot(nodes_bdry))
+    mean_curv = np.linalg.norm(hn, axis=1)
+
+    return mean_curv, gaussian_curv
+
+def get_curv(v, f):
+    v1, v2, k1, k2 = igl.principal_curvature(v, f)
+    gaussian_curv = k1*k2
+    mean_curv = 0.5*(k1 + k2)
+    return mean_curv, gaussian_curv
+
+def reorient_faces(nodes, faces):
+    ms = pymeshlab.MeshSet()
+    m = pymeshlab.Mesh(nodes, faces)
+    ms.add_mesh(m)
+
+    #print(ms.mesh_number())
+
+    ms.apply_filter("meshing_re_orient_faces_coherently")
+    #print(ms)
+
+    #print(ms.mesh_number())
+
+    # get a reference to the current mesh
+    m = ms.current_mesh()
+
+    # get numpy arrays of vertices and faces of the current mesh
+    nodes_out = m.vertex_matrix()
+    faces_out = m.face_matrix()
+
+    #print(faces_out.shape, faces.shape)
+    assert(abs(nodes_out-nodes).max() < 1e-12)
+
+    return nodes_out, faces_out
+
+def get_curv2(nodes, faces):
+    # Create a MeshSet object
+    ms = pymeshlab.MeshSet()
+    
+    # Create a mesh from the nodes and faces arrays and add it to the MeshSet
+    m = pymeshlab.Mesh(nodes, faces)
+    ms.add_mesh(m)
+    
+    pymeshlab.print_pymeshlab_version()
+    filters = pymeshlab.filter_list()
+    for filter in filters:
+        if "curvature" in filter:
+            print(filter)
+
+    # Apply the filter to compute curvature
+    #ms.apply_filter("colorize_curvature_apss")
+    ms.apply_filter("meshing_re_orient_faces_coherently")
+    ms.apply_filter("compute_curvature_and_color_apss_per_vertex")
+    curvature_mesh = ms.current_mesh()
+
+    ms.save_current_mesh("test.ply")
+
+    #print(curvature_mesh.__dict__)
+
+    # Get the mean curvature per vertex
+    v_curv = curvature_mesh.vertex_scalar_field_values('MeanCurvature')
+    return v_curv
+
+def get_boundary_points(v, f):
+    e = dict()
+    for iface, vloc_ in enumerate(f):
+        v1, v2, v3 = list(sorted(vloc_))
+        edges = [(v1, v2), (v1, v3), (v2, v3)]
+        for edge in edges:
+            if edge in e:
+                e[edge].append(iface)
+            else:
+                e[edge] = [iface]
+
+    boundary_nodes = set()
+    for key, val in e.items():
+        if len(val) == 1:
+            boundary_nodes.update(set(key))
+
+    return list(sorted(boundary_nodes))
+
+def get_voronoi_area(v, f):
+    m = igl.massmatrix(v, f, igl.MASSMATRIX_TYPE_VORONOI).diagonal()
+    return m
 
 if __name__ == "__main__":
     args = parse_args()
@@ -199,10 +292,29 @@ if __name__ == "__main__":
         faces = m.cells_dict["triangle"]
         subd = m.cell_data["subd"][0].flatten()
 
+        exterior_faces = subd > 0
+        faces = faces[exterior_faces, :]
+        subd = subd[exterior_faces]
+
+        #print(subd)
+        #mean_curv, gaussian_curv = get_curv(nodes, faces)
+        nodes, faces = reorient_faces(nodes, faces)
+
         # Inlet
         nodes_inlet, faces_inlet = get_submesh(nodes, faces, subd == 3)
         nodes_outlet, faces_outlet = get_submesh(nodes, faces, subd == 4)
         nodes_bdry, faces_bdry = get_submesh(nodes, faces, subd == 7)
+        nodes_bead, faces_bead = get_submesh(nodes, faces, subd == 6)
+
+        if False:
+            # Optimal radii
+            dx = nodes_bead[:, :]
+            dx[:, 2] -= 0.5
+            dr = np.linalg.norm(dx, axis=1)
+            n = dx
+            for dim in range(3):
+                n[:, dim] /= dr
+            nodes_bead = n*0.5
 
         inlet_mesh_fname = os.path.join(datafolder, fname + "_subd3.h5")
         numpy_to_dolfin_file(nodes_inlet[:, [1, 2]], faces_inlet, filename=inlet_mesh_fname)
@@ -210,39 +322,60 @@ if __name__ == "__main__":
         outlet_mesh_fname = os.path.join(datafolder, fname + "_subd4.h5")
         numpy_to_dolfin_file(nodes_outlet[:, [1, 2]], faces_outlet, filename=outlet_mesh_fname)
 
+        #bead_mesh_fname = os.path.join(datafolder, fname + "_subd6.h5")
+
         #bdry_mesh_fname = os.path.join(datafolder, fname + "_subd7.h5")
         #numpy_to_dolfin_file(nodes_bdry[:, [0, 2]], faces_bdry, filename=bdry_mesh_fname)
 
         inlet_area = compute_mesh_area(inlet_mesh_fname)
         outlet_area = compute_mesh_area(outlet_mesh_fname)
 
-        gaussian_curv = igl.gaussian_curvature(nodes_bdry, faces_bdry)
-
-        l = igl.cotmatrix(nodes_bdry, faces_bdry)
-        m = igl.massmatrix(nodes_bdry, faces_bdry, igl.MASSMATRIX_TYPE_VORONOI)
-
-        minv = sp.sparse.diags(1 / m.diagonal())
-
-        hn = -minv.dot(l.dot(nodes_bdry))
-        mean_curv = np.linalg.norm(hn, axis=1)
-
+        mean_curv_bdry, gaussian_curv_bdry = get_curv(nodes_bdry, faces_bdry)
         bdry_mesh_fname = os.path.join(datafolder, fname + "_subd7.xdmf")
-
+        mean_curv_bead, gaussian_curv_bead = get_curv(nodes_bead, faces_bead)
+        bead_mesh_fname = os.path.join(datafolder, fname + "_subd6.xdmf")
+        #bead_mesh_fname2 = os.path.join(datafolder, fname + "_subd6.ply")
+        
         #tm = trimesh.Trimesh(nodes_bdry, faces_bdry)
-
-        meshio.write_points_cells(bdry_mesh_fname, nodes_bdry, cells=[("triangle", faces_bdry)], point_data=dict(gaussian_curv=gaussian_curv, mean_curv=mean_curv))
 
         #fig, ax = plt.subplots(1, 2)
         #ax[0].hist(mean_curv[gaussian_curv < 1], bins=100)
         #ax[1].hist(gaussian_curv, bins=100)
         #plt.show()
 
-        H = mean_curv[gaussian_curv < 1].mean()
+        voronoi_area_bead = get_voronoi_area(nodes_bead, faces_bead)
+        voronoi_area_bdry = get_voronoi_area(nodes_bdry, faces_bdry)
+
+        boundary_nodes_bdry = get_boundary_points(nodes_bdry, faces_bdry)
+        is_interior_bdry = np.ones_like(gaussian_curv_bdry, dtype=bool)
+        is_interior_bdry[boundary_nodes_bdry] = False
+
+        boundary_nodes_bead = get_boundary_points(nodes_bead, faces_bead)
+        is_interior_bead = np.ones_like(gaussian_curv_bead, dtype=bool)
+        is_interior_bead[boundary_nodes_bead] = False
+
+        meshio.write_points_cells(bdry_mesh_fname, nodes_bdry, cells=[("triangle", faces_bdry)],
+                                  point_data=dict(gaussian_curv=gaussian_curv_bdry, mean_curv=mean_curv_bdry, 
+                                                  area=voronoi_area_bdry, interior=np.asarray(is_interior_bdry, dtype=float)))
+
+        meshio.write_points_cells(bead_mesh_fname, nodes_bead, cells=[("triangle", faces_bead)],
+                                  point_data=dict(gaussian_curv=gaussian_curv_bead, mean_curv=mean_curv_bead,
+                                                  area=voronoi_area_bead, interior=np.asarray(is_interior_bead, dtype=float)))
+
+        #meshio.write_points_cells(bead_mesh_fname2, nodes_bead, cells=[("triangle", faces_bead)],
+        #                         point_data=dict(gaussian_curv=gaussian_curv_bead, mean_curv=mean_curv_bead,
+        #                                          area=voronoi_area_bead, interior=np.asarray(is_interior_bead, dtype=float)))
+
+        K_mean_bdry = (gaussian_curv_bdry*voronoi_area_bdry)[is_interior_bdry].sum()/voronoi_area_bdry[is_interior_bdry].sum()
+        K_mean_bead = (gaussian_curv_bead*voronoi_area_bead)[is_interior_bead].sum()/voronoi_area_bead[is_interior_bead].sum()
+
+        H_mean_bdry = (mean_curv_bdry*voronoi_area_bdry)[is_interior_bdry].sum()/voronoi_area_bdry[is_interior_bdry].sum()
+        H_mean_bead = (mean_curv_bead*voronoi_area_bead)[is_interior_bead].sum()/voronoi_area_bead[is_interior_bead].sum()
 
         Pc = prm["Pc"][0]
         dist = prm["Dist"][0]
 
-        data_loc = [dist, Pc, inlet_area, outlet_area, H]
+        data_loc = [dist, Pc, inlet_area, outlet_area, H_mean_bdry, H_mean_bead, K_mean_bdry, K_mean_bead]
         print(*data_loc)
         data_.append(data_loc)
         np.savetxt(output_fname, np.array(data_loc))
