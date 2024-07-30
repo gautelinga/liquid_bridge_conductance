@@ -29,6 +29,26 @@ def get_submesh(nodes, faces, ids):
         old_to_new_node_ids[old_node_id] = new_node_id
     nodes_sub = nodes[old_node_ids, :]
     faces_sub = old_to_new_node_ids[faces_sub]
+
+    if False:
+        ms = pymeshlab.MeshSet()
+        m = pymeshlab.Mesh(nodes_sub, faces_sub)
+        ms.add_mesh(m)
+
+        #print(ms.mesh_number())
+
+        #ms.apply_filter("meshing_re_orient_faces_coherently")
+        ms.apply_filter("apply_coord_laplacian_smoothing", stepsmoothnum=100)
+
+        #print(ms.mesh_number())
+
+        # get a reference to the current mesh
+        m = ms.current_mesh()
+
+        # get numpy arrays of vertices and faces of the current mesh
+        nodes_sub = m.vertex_matrix()
+        faces_sub = m.face_matrix()
+
     return nodes_sub, faces_sub
 
 def compute_mesh_area(mesh_fname):
@@ -248,43 +268,6 @@ if __name__ == "__main__":
         #mesh_fname = os.path.join(meshfolder, fname + ".h5")
         subd_fname = os.path.join(datafolder, fname + "_subd.xdmf")
         output_fname = os.path.join(datafolder, fname + "_geom.dat")
-
-        """
-        mesh = df.Mesh()
-        with df.HDF5File(mesh.mpi_comm(), mesh_fname, "r") as h5f:
-            h5f.read(mesh, "mesh", False)
-
-        n = df.FacetNormal(mesh)
-        V = df.VectorFunctionSpace(mesh, "CG", 1)
-        u = df.TrialFunction(V)
-        v = df.TestFunction(V)
-        a = df.inner(u,v)*df.ds
-        l = df.inner(n, v)*df.ds
-        A = df.assemble(a, keep_diagonal=True)
-        L = df.assemble(l)
-
-        A.ident_zeros()
-        nh = df.Function(V)
-
-        df.solve(A, nh.vector(), L)
-        df.File(os.path.join(datafolder, fname + "_nh.pvd")) << nh
-        bmesh = df.BoundaryMesh(mesh, "exterior")
-        nb = vector_mesh_to_boundary(nh, bmesh)
-        Q = df.FunctionSpace(bmesh, "CG", 1)
-
-        p, q = df.TrialFunction(Q), df.TestFunction(Q)
-        a = df.inner(p,q)*df.dx
-        l = df.inner(df.div(nb), q)*df.dx
-        A = df.assemble(a, keep_diagonal=True)
-        L = df.assemble(l)
-        A.ident_zeros()
-        kappab = df.Function(Q)
-        df.solve(A, kappab.vector(), L)
-        kappa = boundary_to_mesh(kappab, mesh)
-
-        print(df.assemble(kappa*df.ds))
-        df.File(os.path.join(datafolder, fname + "_kappa.pvd")) << kappa
-        """
         
         m = meshio.read(subd_fname)
 
@@ -306,11 +289,12 @@ if __name__ == "__main__":
         nodes_bdry, faces_bdry = get_submesh(nodes, faces, subd == 7)
         nodes_bead, faces_bead = get_submesh(nodes, faces, subd == 6)
 
+        # Optimal radii
+        dx = np.copy(nodes_bead[:, :])
+        dx[:, 2] -= 0.5
+        dr = np.linalg.norm(dx, axis=1)
+
         if False:
-            # Optimal radii
-            dx = nodes_bead[:, :]
-            dx[:, 2] -= 0.5
-            dr = np.linalg.norm(dx, axis=1)
             n = dx
             for dim in range(3):
                 n[:, dim] /= dr
@@ -354,13 +338,40 @@ if __name__ == "__main__":
         is_interior_bead = np.ones_like(gaussian_curv_bead, dtype=bool)
         is_interior_bead[boundary_nodes_bead] = False
 
+        xx = nodes_bdry[boundary_nodes_bdry, :]
+        ids = xx[:, 0] < 1e-3
+        ids[xx[:, 2] > 0.5] = False
+
+        xx = xx[ids, :]
+
+        def calc_R(xc, yc):
+            """ calculate the distance of each 2D points from the center (xc, yc) """
+            return np.sqrt((xx[:, 1]-xc)**2 + (xx[:, 2]-yc)**2)
+
+        def f_2(c):
+            """ calculate the algebraic distance between the data points and the mean circle centered at c=(xc, yc) """
+            Ri = calc_R(*c)
+            return Ri - Ri.mean()
+
+        center_guess = xx[:, 1].mean(), xx[:, 2].mean()
+        center, ier = opt.leastsq(f_2, center_guess)
+        radius = calc_R(*center).mean()
+
+        if False:
+            fig, ax = plt.subplots(1, 1)
+            ax.scatter(xx[:, 1], xx[:, 2])
+            circ = plt.Circle(center, radius, color='r', fill=False)
+            ax.add_patch(circ)
+            ax.set_aspect("equal")
+            plt.show()
+
         meshio.write_points_cells(bdry_mesh_fname, nodes_bdry, cells=[("triangle", faces_bdry)],
                                   point_data=dict(gaussian_curv=gaussian_curv_bdry, mean_curv=mean_curv_bdry, 
                                                   area=voronoi_area_bdry, interior=np.asarray(is_interior_bdry, dtype=float)))
 
         meshio.write_points_cells(bead_mesh_fname, nodes_bead, cells=[("triangle", faces_bead)],
                                   point_data=dict(gaussian_curv=gaussian_curv_bead, mean_curv=mean_curv_bead,
-                                                  area=voronoi_area_bead, interior=np.asarray(is_interior_bead, dtype=float)))
+                                                  area=voronoi_area_bead, dr=dr, interior=np.asarray(is_interior_bead, dtype=float)))
 
         #meshio.write_points_cells(bead_mesh_fname2, nodes_bead, cells=[("triangle", faces_bead)],
         #                         point_data=dict(gaussian_curv=gaussian_curv_bead, mean_curv=mean_curv_bead,
@@ -375,7 +386,7 @@ if __name__ == "__main__":
         Pc = prm["Pc"][0]
         dist = prm["Dist"][0]
 
-        data_loc = [dist, Pc, inlet_area, outlet_area, H_mean_bdry, H_mean_bead, K_mean_bdry, K_mean_bead]
+        data_loc = [dist, Pc, inlet_area, outlet_area, H_mean_bdry, H_mean_bead, K_mean_bdry, K_mean_bead, radius]
         print(*data_loc)
         data_.append(data_loc)
         np.savetxt(output_fname, np.array(data_loc))
