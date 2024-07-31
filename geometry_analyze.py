@@ -386,7 +386,7 @@ if __name__ == "__main__":
         Pc = prm["Pc"][0]
         dist = prm["Dist"][0]
 
-        data_loc = [dist, Pc, inlet_area, outlet_area, H_mean_bdry, H_mean_bead, K_mean_bdry, K_mean_bead, radius]
+        data_loc = [dist, Pc, inlet_area, outlet_area, H_mean_bdry, H_mean_bead, K_mean_bdry, K_mean_bead, radius, center[0], center[1]]
         print(*data_loc)
         data_.append(data_loc)
         np.savetxt(output_fname, np.array(data_loc))
