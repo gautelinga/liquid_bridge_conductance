@@ -224,7 +224,7 @@ def get_curv2(nodes, faces):
     v_curv = curvature_mesh.vertex_scalar_field_values('MeanCurvature')
     return v_curv
 
-def get_boundary_points(v, f):
+def make_edge_dict(f):
     e = dict()
     for iface, vloc_ in enumerate(f):
         v1, v2, v3 = list(sorted(vloc_))
@@ -234,7 +234,10 @@ def get_boundary_points(v, f):
                 e[edge].append(iface)
             else:
                 e[edge] = [iface]
+    return e
 
+def get_boundary_points(f):
+    e = make_edge_dict(f)
     boundary_nodes = set()
     for key, val in e.items():
         if len(val) == 1:
@@ -330,14 +333,15 @@ if __name__ == "__main__":
         voronoi_area_bead = get_voronoi_area(nodes_bead, faces_bead)
         voronoi_area_bdry = get_voronoi_area(nodes_bdry, faces_bdry)
 
-        boundary_nodes_bdry = get_boundary_points(nodes_bdry, faces_bdry)
+        boundary_nodes_bdry = get_boundary_points(faces_bdry)
         is_interior_bdry = np.ones_like(gaussian_curv_bdry, dtype=bool)
         is_interior_bdry[boundary_nodes_bdry] = False
 
-        boundary_nodes_bead = get_boundary_points(nodes_bead, faces_bead)
+        boundary_nodes_bead = get_boundary_points(faces_bead)
         is_interior_bead = np.ones_like(gaussian_curv_bead, dtype=bool)
         is_interior_bead[boundary_nodes_bead] = False
 
+        # Fitting a circle to points
         xx = nodes_bdry[boundary_nodes_bdry, :]
         ids = xx[:, 0] < 1e-3
         ids[xx[:, 2] > 0.5] = False
@@ -348,13 +352,13 @@ if __name__ == "__main__":
             """ calculate the distance of each 2D points from the center (xc, yc) """
             return np.sqrt((xx[:, 1]-xc)**2 + (xx[:, 2]-yc)**2)
 
-        def f_2(c):
+        def f_res(c):
             """ calculate the algebraic distance between the data points and the mean circle centered at c=(xc, yc) """
             Ri = calc_R(*c)
             return Ri - Ri.mean()
 
         center_guess = xx[:, 1].mean(), xx[:, 2].mean()
-        center, ier = opt.leastsq(f_2, center_guess)
+        center, ier = opt.leastsq(f_res, center_guess)
         radius = calc_R(*center).mean()
 
         if False:
@@ -363,6 +367,45 @@ if __name__ == "__main__":
             circ = plt.Circle(center, radius, color='r', fill=False)
             ax.add_patch(circ)
             ax.set_aspect("equal")
+            plt.show()
+
+        # Now I want to calculate the intersection between a mesh and a plane
+        e2f = make_edge_dict(faces_bdry)
+        e = np.array(list(e2f.keys()))
+        dz = nodes_bdry[e[:, :], 2] - center[1]
+        cross = np.logical_xor(dz[:, 0] > 0, dz[:, 1] > 0)
+
+        ee = e[cross, :]
+        weight = abs(dz[cross, :])
+        weightsum = weight.sum(axis=1)
+        weight[:, 0] /= weightsum
+        weight[:, 1] /= weightsum
+        xx = np.zeros_like(weight)
+        for i in range(2):
+            xx[:, i] = weight[:, 0]*nodes_bdry[ee[:, 0], i] + weight[:, 1]*nodes_bdry[ee[:, 1], i]
+
+        xxx = xx[xx[:, 0] < 0.1, :]
+
+        def calc_R(yc):
+            return np.sqrt(xxx[:, 0]**2 + (xxx[:, 1]-yc)**2)
+
+        def f_res(c):
+            Ri = calc_R(*c)
+            return Ri - Ri.mean()
+
+        yy_guess = 0
+        yy, ier = opt.leastsq(f_res, yy_guess)
+        ry = calc_R(*yy).mean()
+
+        if False:
+            fig, ax = plt.subplots(1, 1)
+            ax.plot(xx[:, 0], xx[:, 1], 'k.')
+            ax.scatter(xxx[:, 0], xxx[:, 1])
+            ax.set_aspect("equal")
+
+            circ = plt.Circle((0, yy), ry, color='r', fill=False)
+            ax.add_patch(circ)
+
             plt.show()
 
         meshio.write_points_cells(bdry_mesh_fname, nodes_bdry, cells=[("triangle", faces_bdry)],
@@ -386,7 +429,7 @@ if __name__ == "__main__":
         Pc = prm["Pc"][0]
         dist = prm["Dist"][0]
 
-        data_loc = [dist, Pc, inlet_area, outlet_area, H_mean_bdry, H_mean_bead, K_mean_bdry, K_mean_bead, radius, center[0], center[1]]
+        data_loc = [dist, Pc, inlet_area, outlet_area, H_mean_bdry, H_mean_bead, K_mean_bdry, K_mean_bead, radius, center[0], center[1], ry]
         print(*data_loc)
         data_.append(data_loc)
         np.savetxt(output_fname, np.array(data_loc))
