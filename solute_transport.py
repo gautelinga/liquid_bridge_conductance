@@ -1,7 +1,7 @@
 import argparse
 import numpy as np
 import dolfin as df
-from utils import mpi_max, mpi_min, mpi_print, Top, Btm, Boundary, Sphere, mpi_is_root
+from utils import mpi_max, mpi_min, mpi_print, Top, Btm, Boundary, Sphere, mpi_is_root, MPI
 import os
 from utils import numpy_to_dolfin_file, dolfin_file_to_numpy, double_mesh
 
@@ -209,7 +209,9 @@ if __name__ == "__main__":
 
         Pe_val_min = -1
         Pe_val_max = 3
-        Pe_vals = np.logspace(Pe_val_min, Pe_val_max, (Pe_val_max-Pe_val_min)*4+1)
+        Pe_vals = np.concatenate([[0.], np.logspace(Pe_val_min, Pe_val_max, (Pe_val_max-Pe_val_min)*4+1)])
+
+        bsimsfile = os.path.join(folder, "Bsims.dat")
 
         xdmff = df.XDMFFile(mesh2.mpi_comm(), os.path.join(folder, "chi.xdmf"))
         xdmff.parameters["rewrite_function_mesh"] = False
@@ -234,4 +236,4 @@ if __name__ == "__main__":
 
         if mpi_is_root:
             data_ = np.array(data_)
-            np.savetxt(os.path.join(folder, "Bsims.dat"), data_)
+            np.savetxt(bsimsfile, data_)
