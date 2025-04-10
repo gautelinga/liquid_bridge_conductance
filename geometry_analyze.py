@@ -263,6 +263,8 @@ if __name__ == "__main__":
     
     data_ = []
 
+    plot = True
+
     # Process each mesh in parallel
     for fname in fnames:
         print(fname)
@@ -361,7 +363,9 @@ if __name__ == "__main__":
         center, ier = opt.leastsq(f_res, center_guess)
         radius = calc_R(*center).mean()
 
-        if False:
+        zmid = center_guess[1]
+
+        if plot:
             fig, ax = plt.subplots(1, 1)
             ax.scatter(xx[:, 1], xx[:, 2])
             circ = plt.Circle(center, radius, color='r', fill=False)
@@ -372,7 +376,8 @@ if __name__ == "__main__":
         # Now I want to calculate the intersection between a mesh and a plane
         e2f = make_edge_dict(faces_bdry)
         e = np.array(list(e2f.keys()))
-        dz = nodes_bdry[e[:, :], 2] - center[1]
+
+        dz = nodes_bdry[e[:, :], 2] - zmid
         cross = np.logical_xor(dz[:, 0] > 0, dz[:, 1] > 0)
 
         ee = e[cross, :]
@@ -386,6 +391,14 @@ if __name__ == "__main__":
 
         xxx = xx[xx[:, 0] < 0.1, :]
 
+        if plot:
+            fig, ax = plt.subplots(1, 1)
+            ax.plot(xx[:, 0], xx[:, 1], 'k.')
+            ax.scatter(xxx[:, 0], xxx[:, 1])
+            ax.set_aspect("equal")
+
+            plt.show()
+        
         def calc_R(yc):
             return np.sqrt(xxx[:, 0]**2 + (xxx[:, 1]-yc)**2)
 
@@ -397,7 +410,7 @@ if __name__ == "__main__":
         yy, ier = opt.leastsq(f_res, yy_guess)
         ry = calc_R(*yy).mean()
 
-        if False:
+        if plot:
             fig, ax = plt.subplots(1, 1)
             ax.plot(xx[:, 0], xx[:, 1], 'k.')
             ax.scatter(xxx[:, 0], xxx[:, 1])

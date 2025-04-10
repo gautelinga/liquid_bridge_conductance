@@ -12,6 +12,7 @@ def parse_args():
     parser.add_argument("--beta", type=float, default=100, help="Parameter to weakly enforce boundary condition")
     parser.add_argument("--noslip", action="store_true", help="Enforce no-slip condition at the air-water boundary")
     parser.add_argument("--direct", action="store_true", help="Use direct solver")
+    parser.add_argument("--regenerate", action="store_true", help="")
     return parser.parse_args()
 
 def simulate(infilename, outfilename, beta, use_noslip=False, use_direct=True, tol = 1e-7):
@@ -229,7 +230,7 @@ if __name__ == "__main__":
         infilename = os.path.join(args.infolder, fname)
         outfilename = os.path.join(args.outfolder, fname[:-3])
         
-        if not os.path.exists(outfilename + ".dat"):
+        if not os.path.exists(outfilename + ".dat") or args.regenerate:
             mpi_print(fname)
                 
             data = simulate(infilename, outfilename, args.beta, args.noslip, args.direct, tol=1e-4)
