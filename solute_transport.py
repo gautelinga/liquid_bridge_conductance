@@ -12,6 +12,7 @@ def parse_args():
     parser.add_argument("meshfolder", type=str, help="Name of folder containing .h5 volume mesh files")
     parser.add_argument("flowfolder", type=str, help="Name of folder containing .h5 flow fields")
     parser.add_argument("outfolder", type=str, help="Output folder")
+    parser.add_argument("--regenerate", action="store_true", help="Regenerate B field solution")
     return parser.parse_args()
 
 def get_files(folder, ext=".h5"):
@@ -58,6 +59,13 @@ if __name__ == "__main__":
         folder = os.path.join(args.outfolder, filename[:-3])
         if mpi_is_root and not os.path.exists(folder):
             os.makedirs(folder)
+
+        bsimsfile = os.path.join(folder, "Bsims.dat")
+        if os.path.exists(bsimsfile) and not args.regenerate:
+            mpi_print(f"Found {bsimsfile} -- continuing...")
+            continue
+        else:
+            mpi_print(f"Generating {bsimsfile}")
 
         #mesh2name = os.path.join(args.outfolder, filename[:-3] + "_doubled_mesh.h5")
         #flow2name = os.path.join(args.outfolder, filename[:-3] + "_doubled_flow.h5")
@@ -210,8 +218,6 @@ if __name__ == "__main__":
         Pe_val_min = -1
         Pe_val_max = 3
         Pe_vals = np.concatenate([[0.], np.logspace(Pe_val_min, Pe_val_max, (Pe_val_max-Pe_val_min)*4+1)])
-
-        bsimsfile = os.path.join(folder, "Bsims.dat")
 
         xdmff = df.XDMFFile(mesh2.mpi_comm(), os.path.join(folder, "chi.xdmf"))
         xdmff.parameters["rewrite_function_mesh"] = False
